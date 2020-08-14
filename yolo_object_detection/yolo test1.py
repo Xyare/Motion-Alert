@@ -1,21 +1,20 @@
 import numpy as np
 import cv2
+import time
 
 
-baseDir = "D:\yolo_object_detection"
+baseDir = r"C:\Users\Xyare\Documents\yolov3"
 #loading yolov
 net = cv2.dnn.readNet(baseDir + "\yolov3.weights", baseDir + "\yolov3.cfg")
 classes = []
 with open(baseDir +  "\coco.names", "r" ) as f:
     classes = [line.strip() for line in f.readlines()]
-#test laod names
-#print(classes)
 
 layerNames = net.getLayerNames()
 outputLayers = [layerNames[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 colors = np.random.uniform(0, 255, size=(len(classes), 3))
 #cv2.VideoCapture(0)
-webCam = cv2.VideoCapture('http://192.168.2.147:8080/stream/video/mjpeg?resolution=HD&&Username=admin&&Password=NTZUYWZ0U3RyZWV0&&tempid=0.024356687350152617')
+webCam = cv2.VideoCapture(0)
 while(True):
     #capture image
 
@@ -38,7 +37,7 @@ while(True):
             scores = detection[5:]
             class_id = np.argmax(scores)
             confidence = scores[class_id]
-            if confidence > 0.6:
+            if confidence > 0.65:
                 # Object detected
                 center_x = int(detection[0] * width)
                 center_y = int(detection[1] * height)
@@ -67,7 +66,7 @@ while(True):
     #Display result
     cv2.imshow("Webcam", frame)
     #cv2.waitKey(0)
-
+    #time.sleep(.25)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 cv2.destroyAllWindows()
