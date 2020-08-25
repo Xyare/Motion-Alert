@@ -3,9 +3,10 @@ import sched
 import time
 import numpy as np
 import cv2
-import email
 import smtplib
 import ssl
+
+from abc import ABC, abstractmethod
 
 from email import encoders
 from email.mime.base import MIMEBase
@@ -16,6 +17,8 @@ from email.mime.text import MIMEText
 class MotionDetector:
 
     def __init__(self):
+
+        self.state = detectionState
 
         self.s = sched.scheduler(time.time, time.sleep)
         self.cameraList = []
@@ -52,7 +55,6 @@ class MotionDetector:
         baseDir = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__))) + r"\yolo_object_detection"
         # loading yolov3
         self.net = cv2.dnn.readNet(baseDir + r"\yolov3.weights", baseDir + r"\yolov3.cfg")
-        classes = []
         with open(baseDir + r"\coco.names", "r") as f:
             self.classes = [line.strip() for line in f.readlines()]
 
@@ -62,21 +64,16 @@ class MotionDetector:
     # Grabs a frame from each video source and calls detectFrames to see what is detected in each.
     # Schedules itself again at specified time interval
     def runFrames(self):
-        detected = False
-
-        # Read frame from each source at specified time interval, OpenCV
+        frameList = []
+        # Read frame from each source
         for source in self.cameraList:
             vidSource = cv2.VideoCapture(source)
             ret, frame = vidSource.read()
-            cv2.imshow("Webcam", frame)
-            # Run analysis on captured frames, set detected to true if person found
-            detected = self.detectFrames(frame)
-            if detected:
-                break
+            frameList.append(frame)
 
-        # Send email alert
-        if self.emailAlert and detected:
-            self.sendNotification(frame)
+        # detected = self.detectFrames(frame)
+        # Run analysis on captured frames depending on current state. Passes list of frames captured
+        self.state.runFrames(self, frameList)
 
     # Given a frame, return what was detected. Use of yolov3, returns boolean if detected something
     def detectFrames(self, frame):
@@ -84,9 +81,8 @@ class MotionDetector:
         blob = cv2.dnn.blobFromImage(frame, .00392, (416, 416), (0, 0, 0), True, crop=False)
 
         self.net.setInput(blob)
-        outputs = self.net.forward(self.outputLayers) \
- \
-            # Look for detecting a person with greater than level of certainty
+        outputs = self.net.forward(self.outputLayers)
+        # Look for detecting a person with greater than level of certainty
         for out in outputs:
             for detection in out:
                 scores = detection[5:]
@@ -139,6 +135,44 @@ class MotionDetector:
 
     def alertStatus(self):
         return self.emailAlert
+
+    # Transition to next state
+    def transition(self, state):
+        self.state = state
+
+
+# Abstract base state
+class State(ABC):
+
+    @abstractmethod
+    def runFrames(self, frame) -> None:
+        pass
+
+
+# Checks to see if there are people in any frame
+# If detected, transitions to detection state and returns frames where detection occurred
+class detectionState(State):
+    def runFrames(self, frames):
+        detectedFrames = []
+        for i in frames:
+            if self.detectFrames(i):
+                detectedFrames.append(i)
+
+        self.transition(alertedState)
+        return detectedFrames
+
+
+# Checks to see if subject is still in frame, transitions back to detectionState
+# Record frames to video until subject leaves
+class alertedState(State):
+    def runFrames(self, frames):
+        print()
+
+
+# Logging state when alerts/recordings arent needed
+# Saves to sql server
+class loggingState(State):
+    print()
 
 
 if __name__ == "__main__":
