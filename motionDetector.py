@@ -89,7 +89,7 @@ class MotionDetector:
                 classId = np.argmax(scores)
 
                 if (self.classes[classId] == "person") and (scores[classId] > self.certainLevel):
-                    return True  # include delayed screenshot
+                    return True  # Detected person with degree of certainty
 
         return False
 
@@ -120,11 +120,11 @@ class MotionDetector:
             # add attachment to email
             message.attach(mime)
 
-            # sending the email
-            server = smtplib.SMTP_SSL(self.smtpServer, 465, context=self.context)
-            server.login(self.originEmail, self.password)
-            server.sendmail(self.originEmail, self.destinationEmail, message.as_string())
-            server.quit()
+        # sending the email
+        server = smtplib.SMTP_SSL(self.smtpServer, 465, context=self.context)
+        server.login(self.originEmail, self.password)
+        server.sendmail(self.originEmail, self.destinationEmail, message.as_string())
+        server.quit()
 
     # Turn on email alerts
     def activateAlerts(self):
@@ -150,23 +150,43 @@ class State(ABC):
 
 
 # Checks to see if there are people in any frame
-# If detected, transitions to detection state and returns frames where detection occurred
+# If detected, sends email notification, transitions to detection state
 class detectionState(State):
     def runFrames(self, frames):
         detectedFrames = []
+        detected = False
         for i in frames:
             if self.detectFrames(i):
+                detected = True
                 detectedFrames.append(i)
 
-        self.transition(alertedState)
-        return detectedFrames
+        if detected:
+            #self.sendNotification(detectedFrames)
+            self.transition(alertedState)
+            print("Transitioning to alerted state")
+            return detectedFrames
 
 
 # Checks to see if subject is still in frame, transitions back to detectionState
 # Record frames to video until subject leaves
 class alertedState(State):
     def runFrames(self, frames):
-        print()
+        # Start video file
+
+        while(True):
+            detected = False
+            for i in self.cameraList:
+                vidSource = cv2.VideoCapture(i)
+                ret, frame = vidSource.read()
+                if self.detectFrames(frame):
+                    detected = True
+
+            if not detected:
+                print("Transitioning to detection state")
+                self.transition(detectionState)
+                break
+            else: # Start Recording
+                print()
 
 
 # Logging state when alerts/recordings arent needed
