@@ -13,6 +13,8 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+from threading import Thread
+
 
 class MotionDetector:
 
@@ -20,13 +22,15 @@ class MotionDetector:
 
         self.state = detectionState
 
+        self.Active = True
+        self.currentFrames = []
         self.s = sched.scheduler(time.time, time.sleep)
         self.cameraList = []
         self.emailAlert = True
         self.net = None
         self.outputLayers = None
         # confidence level for detection
-        self.certainLevel = .7
+        self.certainLevel = .8
 
         # email parameters
         self.subject = "test"
@@ -61,23 +65,48 @@ class MotionDetector:
         layerNames = self.net.getLayerNames()
         self.outputLayers = [layerNames[i[0] - 1] for i in self.net.getUnconnectedOutLayers()]
 
-    # Grabs a frame from each video source and calls detectFrames to see what is detected in each.
-    # Schedules itself again at specified time interval
-    def runFrames(self):
-        frameList = []
-        # Read frame from each source
-        for source in self.cameraList:
-            vidSource = cv2.VideoCapture(source)
-            ret, frame = vidSource.read()
-            frameList.append(frame)
+    # Multiprocess/threaded function to continuously have the most current frames available from all sources
+    def updateFrames(self):
+        frameSources = []
+        for camSource in self.cameraList:
+            frameSources.append(cv2.VideoCapture(camSource))
+        while True:
+            # print("Updating frames")
+            # start = time.time()
+            frameList = []
+            # Read frame from each source
+            for source in frameSources:
+                ret, frame = source.read()
+                frameList.append(frame)
+                #cv2.imshow("Source", frame)
 
-        # detected = self.detectFrames(frame)
-        # Run analysis on captured frames depending on current state. Passes list of frames captured
-        self.state.runFrames(self, frameList)
+            self.currentFrames = frameList
+            # print(time.time() - start)
+            # print("Updated frames")
+
+    # Grabs the current frames
+    def grabFrames(self):
+        # print("Grabbing frames")
+        return self.currentFrames
+
+    # Grabs a frame from each video source and callsLoops detectFrames based on state to see what is detected in each.
+    # Runs constantly based on active field
+    def runFrames(self):
+        # Start seperate process for having most current frames
+        frameCapture = Thread(target=self.updateFrames, args=())
+        frameCapture.daemon = True
+        frameCapture.start()
+
+        while self.Active:
+            # detected = self.detectFrames(frame)
+            # Run analysis on captured frames depending on current state. Passes list of frames captured
+            self.state.runFrames(self, self.grabFrames())
+            # print("Iterated")
 
     # Given a frame, return what was detected. Use of yolov3, returns boolean if detected something
     def detectFrames(self, frame):
-
+        # print("Detecting from frames")
+        # start = time.time()
         blob = cv2.dnn.blobFromImage(frame, .00392, (416, 416), (0, 0, 0), True, crop=False)
 
         self.net.setInput(blob)
@@ -89,8 +118,9 @@ class MotionDetector:
                 classId = np.argmax(scores)
 
                 if (self.classes[classId] == "person") and (scores[classId] > self.certainLevel):
+                    # print(time.time() - start)
                     return True  # Detected person with degree of certainty
-
+        # print(time.time() - start)
         return False
 
     # send email notification with screenshot
@@ -161,7 +191,7 @@ class detectionState(State):
                 detectedFrames.append(i)
 
         if detected:
-            #self.sendNotification(detectedFrames)
+            # self.sendNotification(detectedFrames)
             self.transition(alertedState)
             print("Transitioning to alerted state")
             return detectedFrames
@@ -173,36 +203,31 @@ class alertedState(State):
     def runFrames(self, frames):
         # Start video file
 
-        while(True):
-            detected = False
-            for i in self.cameraList:
-                vidSource = cv2.VideoCapture(i)
-                ret, frame = vidSource.read()
-                if self.detectFrames(frame):
-                    detected = True
+        # while (True):
+        detected = False
+        for i in self.currentFrames:
+            if self.detectFrames(i):
+                detected = True
 
-            if not detected:
-                print("Transitioning to detection state")
-                self.transition(detectionState)
-                break
-            else: # Start Recording
-                print()
+        if not detected:
+            print("Transitioning to detection state")
+            self.transition(detectionState)
+            # break
+        # else:  # Start Recording
+        # print("Recording")
 
 
 # Logging state when alerts/recordings arent needed
 # Saves to sql server
 class loggingState(State):
-    print()
+    def runFrames(self):
+        print("Logged")
 
 
 if __name__ == "__main__":
-    timeInterval = .1
+
     # create instance of detector
     alertBot = MotionDetector()
 
-    # Timed framegrab/analysis
-    # while True:
-    alertBot.runFrames()
-    # time.sleep(timeInterval)
-    # if cv2.waitKey(1) & 0xFF == ord('q'):
-    # break
+    # alertBot.runFrames()
+
