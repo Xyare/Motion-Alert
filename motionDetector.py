@@ -92,7 +92,7 @@ class MotionDetector:
     # Grabs a frame from each video source and callsLoops detectFrames based on state to see what is detected in each.
     # Runs constantly based on active field
     def runFrames(self):
-        # Start seperate process for having most current frames
+        # Start seperate process for having most current frames from video source
         frameCapture = Thread(target=self.updateFrames, args=())
         frameCapture.daemon = True
         frameCapture.start()
@@ -124,10 +124,15 @@ class MotionDetector:
         return False
 
     # send email notification with screenshot
-    def sendNotification(self, image):
+    def sendNotification(self, images):
         # save frame as image file for attachment
-        file = "temp image.jpg"
-        cv2.imwrite(file, image)
+        x = 1
+        fileList = []
+        for image in images:
+            file = "temp image" + str(x) + ".jpg"
+            cv2.imwrite(file, image)
+            fileList.append(file)
+            x += 1
 
         # send email with screenshot
         message = MIMEMultipart()
@@ -138,17 +143,18 @@ class MotionDetector:
         # body text for email
         message.attach(MIMEText(self.body, "plain"))
 
-        with open("temp image.jpg", "rb") as f:
-            mime = MIMEBase('image', 'jpg', fileName='temp image.jpg')
-            mime.add_header('Content-Disposition', 'attachment', fileName='temp image.jpg')
-            mime.add_header('X-Attachment-Id', '0')
-            mime.add_header('Content-ID', '<0>')
+        for file in fileList:
+            with open(file, "rb") as f:
+                mime = MIMEBase('image', 'jpg', fileName='temp image.jpg')
+                mime.add_header('Content-Disposition', 'attachment', fileName=file)
+                mime.add_header('X-Attachment-Id', '0')
+                mime.add_header('Content-ID', '<0>')
 
-            mime.set_payload(f.read())
-            # encode attachment
-            encoders.encode_base64(mime)
-            # add attachment to email
-            message.attach(mime)
+                mime.set_payload(f.read())
+                # encode attachment
+                encoders.encode_base64(mime)
+                # add attachment to email
+                message.attach(mime)
 
         # sending the email
         server = smtplib.SMTP_SSL(self.smtpServer, 465, context=self.context)
@@ -194,6 +200,7 @@ class detectionState(State):
             # self.sendNotification(detectedFrames)
             self.transition(alertedState)
             print("Transitioning to alerted state")
+            self.sendNotification(detectedFrames)
             return detectedFrames
 
 
